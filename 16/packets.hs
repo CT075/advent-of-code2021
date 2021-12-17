@@ -43,53 +43,50 @@ data Packet = P
 data Payload = Literal Int | Sub Int [Packet]
   deriving (Show)
 
--- The continuation is uncurried because it's a bit easier to use [first] to
--- pass them point-free.
---
 -- We don't need to delay the failure continuation [k] because lazy Haskell,
 -- baby
-decode :: [Bit] -> ((Packet, [Bit]) -> a) -> a -> a
+decode :: [Bit] -> (Packet -> [Bit] -> a) -> a -> a
 decode (v1 : v2 : v3 : t1 : t2 : t3 : payload) s k =
   let version = bitsToInt [v1, v2, v3]
       kind = bitsToInt [t1, t2, t3]
-   in decodePayload kind payload (s . first (P version))
+   in decodePayload kind payload (s . P version)
 decode _ _ k = k
 
-decodePayload :: Int -> [Bit] -> ((Payload, [Bit]) -> a) -> a
+decodePayload :: Int -> [Bit] -> (Payload -> [Bit] -> a) -> a
 decodePayload _ [] _ = undefined
-decodePayload 4 bs k = decodeLiteral bs (k . first Literal)
+decodePayload 4 bs k = decodeLiteral bs (k . Literal)
 decodePayload n (b : bs) k =
   case b of
     Zero ->
       let (len, bs') = first bitsToInt $ splitAt 15 bs
           (subpackets, rest) = splitAt len bs'
-       in decodeUntilFinished subpackets (\(ps, _) -> k (Sub n ps, rest))
+       in decodeUntilFinished subpackets (\ps _ -> k (Sub n ps) rest)
     One ->
       let (len, bs') = first bitsToInt $ splitAt 11 bs
-       in decodeNumPackets len bs' (k . first (Sub n))
+       in decodeNumPackets len bs' (k . Sub n)
 
-decodeLiteral :: [Bit] -> ((Int, [Bit]) -> a) -> a
-decodeLiteral bs k = bitsOnly bs (k . first bitsToInt)
+decodeLiteral :: [Bit] -> (Int -> [Bit] -> a) -> a
+decodeLiteral bs k = bitsOnly bs (k . bitsToInt)
   where
-    bitsOnly :: [Bit] -> (([Bit], [Bit]) -> a) -> a
+    bitsOnly :: [Bit] -> ([Bit] -> [Bit] -> a) -> a
     bitsOnly (header : x1 : x2 : x3 : x4 : rest) k =
       case header of
-        Zero -> k ([x1, x2, x3, x4], rest)
-        One -> bitsOnly rest (k . first ([x1, x2, x3, x4] ++))
+        Zero -> k [x1, x2, x3, x4] rest
+        One -> bitsOnly rest (k . ([x1, x2, x3, x4] ++))
     bitsOnly _ _ = undefined
 
-decodeUntilFinished :: [Bit] -> (([Packet], [Bit]) -> a) -> a
+decodeUntilFinished :: [Bit] -> ([Packet] -> [Bit] -> a) -> a
 decodeUntilFinished bits k =
   decode
     bits
-    (\(packet, left) -> decodeUntilFinished left (k . first (packet :)))
-    (k ([], bits))
+    (\packet left -> decodeUntilFinished left (k . (packet :)))
+    (k [] bits)
 
-decodeNumPackets :: Int -> [Bit] -> (([Packet], [Bit]) -> a) -> a
-decodeNumPackets 0 bs k = k ([], bs)
+decodeNumPackets :: Int -> [Bit] -> ([Packet] -> [Bit] -> a) -> a
+decodeNumPackets 0 bs k = k [] bs
 decodeNumPackets n bs k = decode bs handler undefined
   where
-    handler (p, rest) = decodeNumPackets (n - 1) rest (k . first (p :))
+    handler p rest = decodeNumPackets (n - 1) rest (k . (p :))
 
 versionTotal :: Packet -> Int
 versionTotal p =
@@ -118,10 +115,10 @@ eval p =
     condition _ _ = undefined
 
 part1 :: [Bit] -> Int
-part1 bs = decode bs (versionTotal . fst) undefined
+part1 bs = decode bs (const . versionTotal) undefined
 
 part2 :: [Bit] -> Int
-part2 bs = decode bs (eval . fst) undefined
+part2 bs = decode bs (const . eval) undefined
 
 main :: IO ()
 main = do
