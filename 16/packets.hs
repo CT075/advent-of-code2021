@@ -43,14 +43,17 @@ data Packet = P
 data Payload = Literal Int | Sub Int [Packet]
   deriving (Show)
 
--- the continuation is uncurried because it's a bit easier to use [first] to
--- pass them point-free
-decode :: [Bit] -> ((Packet, [Bit]) -> a) -> (() -> a) -> a
+-- The continuation is uncurried because it's a bit easier to use [first] to
+-- pass them point-free.
+--
+-- We don't need to delay the failure continuation [k] because lazy Haskell,
+-- baby
+decode :: [Bit] -> ((Packet, [Bit]) -> a) -> a -> a
 decode (v1 : v2 : v3 : t1 : t2 : t3 : payload) s k =
   let version = bitsToInt [v1, v2, v3]
       kind = bitsToInt [t1, t2, t3]
    in decodePayload kind payload (s . first (P version))
-decode _ _ k = k ()
+decode _ _ k = k
 
 decodePayload :: Int -> [Bit] -> ((Payload, [Bit]) -> a) -> a
 decodePayload _ [] _ = undefined
@@ -80,7 +83,7 @@ decodeUntilFinished bits k =
   decode
     bits
     (\(packet, left) -> decodeUntilFinished left (k . first (packet :)))
-    (\() -> k ([], bits))
+    (k ([], bits))
 
 decodeNumPackets :: Int -> [Bit] -> (([Packet], [Bit]) -> a) -> a
 decodeNumPackets 0 bs k = k ([], bs)
