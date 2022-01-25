@@ -1,0 +1,4 @@
+The smart thing to do would be to Dijkstras it, but I just solved it by hand.
+A reasonable heuristic is that you should always solve D-C-B-A (because it's
+cheaper). I got lucky and found a good solution quite quickly.
+
